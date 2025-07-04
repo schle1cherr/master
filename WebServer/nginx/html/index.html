@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <title>Verwaltungs-KI Eppstein</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 20px;
+            background-color: #f7f7f7;
+        }
+        h1 {
+            color: #004d99;
+        }
+        textarea {
+            width: 100%;
+            height: 100px;
+            padding: 10px;
+            font-size: 16px;
+            margin-bottom: 10px;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+        }
+        #antwort {
+            margin-top: 30px;
+            padding: 15px;
+            background-color: #fff;
+            border: 1px solid #ccc;
+        }
+    </style>
+</head>
+<body>
+    <h1>Verwaltungs-KI Eppstein</h1>
+    <p>Stellen Sie eine Fachfrage an die KI:</p>
+    <textarea id="frage" placeholder="Ihre Frage..."></textarea><br>
+    <button onclick="frageSenden()">Frage senden</button>
+
+    <div id="antwort">
+        <strong>Antwort:</strong>
+        <p id="antwortText">Noch keine Antwort.</p>
+        <strong>Quellen:</strong>
+        <ul id="quellenListe"></ul>
+    </div>
+
+    <script>
+        async function frageSenden() {
+            const frage = document.getElementById("frage").value;
+            const antwortText = document.getElementById("antwortText");
+            const quellenListe = document.getElementById("quellenListe");
+
+            antwortText.innerText = "Bitte warten...";
+            quellenListe.innerHTML = "";
+
+            try {
+                const response = await fetch("/ask", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({ question: frage })
+                });
+
+                const data = await response.json();
+                antwortText.innerText = data.antwort || "Keine Antwort erhalten.";
+
+                if (data.quellen && data.quellen.length > 0) {
+                    data.quellen.forEach(q => {
+                        const li = document.createElement("li");
+                        li.innerText = q;
+                        quellenListe.appendChild(li);
+                    });
+                } else {
+                    quellenListe.innerHTML = "<li>Keine Quellen angegeben.</li>";
+                }
+
+            } catch (error) {
+                antwortText.innerText = "Fehler beim Abrufen der Antwort.";
+                console.error(error);
+            }
+        }
+    </script>
+</body>
+</html>
