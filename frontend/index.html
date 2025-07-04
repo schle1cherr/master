@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <title>Eppstein KI-Assistent</title>
+  <style>
+    body { font-family: sans-serif; padding: 2rem; background: #f4f4f4; }
+    h1 { color: #005a9c; }
+    textarea { width: 100%; height: 80px; }
+    button { padding: 0.5rem 1rem; margin-top: 1rem; }
+    pre { background: #fff; padding: 1rem; white-space: pre-wrap; border: 1px solid #ccc; }
+  </style>
+</head>
+<body>
+  <h1>Frage den KI-Verwaltungsassistenten</h1>
+  <textarea id="frage" placeholder="Stelle hier deine Frage..."></textarea><br>
+  <button onclick="frageSenden()">Frage senden</button>
+  <h2>Antwort:</h2>
+  <pre id="antwort">Noch keine Antwort.</pre>
+
+  <script>
+    async function frageSenden() {
+      const frage = document.getElementById("frage").value;
+      const response = await fetch("/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question: frage })
+      });
+      const data = await response.json();
+      document.getElementById("antwort").textContent = data.antwort || "Fehler bei der Antwort.";
+    }
+  </script>
+</body>
+</html>

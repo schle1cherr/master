@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+langchain
+transformers
+sentence-transformers
+faiss-cpu
+unstructured
+python-docx
+openpyxl
+pypdf
