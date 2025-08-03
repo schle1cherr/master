@@ -1,3 +1,14 @@
+"""
+main.py – Einstiegspunkt und Steuerzentrale des KI-RAG-Prototyps
+
+Dieses Modul stellt die FastAPI-Schnittstelle für alle Kernfunktionalitäten bereit:
+- Laden und Verarbeiten von Dokumenten,
+- Aufbau des Vektorindex,
+- Beantwortung von Nutzeranfragen auf Basis eines Retrieval-Augmented Generation (RAG) Workflows.
+
+Die Konzeption folgt dem Prinzip der klaren Trennung zwischen Web-Service (API), Dokumentenmanagement und Modellinteraktion.
+"""
+
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,19 +23,20 @@ from utils.loader import load_documents_from_folder
 from utils.vectorstore import build_vectorstore_from_docs, load_vectorstore
 from langchain_core.documents import Document
 
-# Hier lesen wir die Variablen aus der .env ein
+# Laden der Umgebungsvariablen (u.a. API-Schlüssel) aus .env-Datei.
 load_dotenv()
 
-#Hier definieren wir das Modell welches wir nutzen möchten und die API (GROQ), der API Schlüssel für GROQ ist in der .env gespeichert und wir hier abgerufen.
+# Zentrale Modellkonfiguration: Trennung von Schlüssel, Endpunkt und Modellnamen ermöglicht flexible Anpassungen.
 MODEL_CONFIG = {
     "api_key": os.getenv("GROQ_API_KEY"),
     "api_url": "https://api.groq.com/openai/v1/chat/completions",
     "model_name": "meta-llama/llama-4-scout-17b-16e-instruct"
 }
 
+# Initialisierung der FastAPI-Anwendung.
 app = FastAPI()
 
-#Hier wird das Cross-Origin Resource Sharing kurz CORS definiert, um mit dem Frontend (index.html) kommunizieren zu können.
+# CORS-Konfiguration, um Anfragen aus beliebigen Quellen (z.B. externes Frontend) zu ermöglichen.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], 
@@ -33,14 +45,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-#Kurzer Health Check
+# Health-Check-Endpunkt, um den Serverstatus zu prüfen.
 @app.get("/")
 def root():
     return {"message": "KI-Dokumentenserver läuft"}
 
-# Vorschau aller geladenen Dokumente um zu prüfen ob alle Dokumente und ihre Inhalte erkannt wurden
+# Endpunkt zur Anzeige einer Vorschau aller geladenen Dokumente.
 @app.get("/test-dokumente")
 def test_dokumente():
+    """
+    Lädt alle Dokumente aus dem Standardverzeichnis und gibt eine Vorschau der Inhalte zurück.
+    Dient der Qualitätssicherung der Dokumentenverarbeitung.
+    """
     try:
         docs = load_documents_from_folder()
         return {
@@ -50,9 +66,13 @@ def test_dokumente():
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e), "traceback": traceback.format_exc()})
 
-#Bauen des Vektorstores mit /build, weil simpel
+# Endpunkt zum (Neu-)Aufbau des Vektorindex aus den aktuell verfügbaren Dokumenten.
 @app.get("/build")
 def build_store():
+    """
+    Erzeugt den Vektorstore auf Basis aller verfügbaren Dokumente.
+    Ermöglicht Aktualisierungen bei geänderten oder neuen Inhalten.
+    """
     try:
         docs = load_documents_from_folder()
         build_vectorstore_from_docs(docs)
@@ -60,26 +80,34 @@ def build_store():
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e), "traceback": traceback.format_exc()})
 
-#Vorschau der relevantesten Dokumente
+# Endpunkt zur Suche der relevantesten Dokumente (Top-Kandidaten für die spätere Kontextgenerierung).
 @app.get("/query")
 def query(question: str):
+    """
+    Gibt die relevantesten Dokumente zum Suchbegriff zurück.
+    Dient der Vorschau und Transparenz für den Nutzer.
+    """
     try:
         vs = load_vectorstore()
-        docs = vs.similarity_search(question, k=12)
+        docs = vs.similarity_search(question, k=6)
         return {"antwortkontext": [doc.page_content for doc in docs]}
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e), "traceback": traceback.format_exc()})
 
-#Datensatzmodell für POST-Anfragen
+# Eingabemodell für Nutzerfragen, validiert über Pydantic (Stabilität und Nachvollziehbarkeit).
 class FrageInput(BaseModel):
     question: str
 
-#Initialisiere Vektorstore bei Serverstart #k= erklären
-retriever = build_hybrid_retriever(k=10)
+# Initialisierung des hybriden Retrievers (semantisch + keyword-basiert) beim Serverstart.
+retriever = build_hybrid_retriever(k=6)
 
-#Haupt-Endpunkt für KI-Fragen
+# Zentrale API für KI-gestützte Antworten, basierend auf dem Retrieval-Augmented Generation (RAG)-Prinzip.
 @app.post("/ask")
 def ask(frage: FrageInput):
+    """
+    Verarbeitet Nutzerfragen und generiert Antworten auf Basis der durchsuchten Dokumente und dem LLM.
+    Wissenschaftlich und fachlich nachvollziehbare Kontextbildung durch explizites Retrieval.
+    """
     try:
         question = frage.question
         docs: List[Document] = retriever.get_relevant_documents(question)
@@ -87,7 +115,7 @@ def ask(frage: FrageInput):
         if not docs:
             return {"antwort": "Dazu liegt mir keine verlässliche Information vor.", "quellen": []}
 
-        # Dokumente sortieren (kürzeste zuerst), dann kontextuell deduplizieren
+        # Kontextaufbau: Kürzeste relevante Dokumente werden bevorzugt, um möglichst viel Informationsdichte in das Modell zu geben (Prompt-Limit).
         sorted_docs = sorted(docs, key=lambda d: len(d.page_content))
         context = ""
         total_chars = 0
@@ -95,15 +123,13 @@ def ask(frage: FrageInput):
         seen_sources = set()
 
         for doc in sorted_docs:
-            # Quelle + Seite identifizieren
+            # Deduplizierung nach Quelle und Seite – identische Dokumente werden nur einmal übergeben.
             src_id = (doc.metadata.get("source"), doc.metadata.get("page_number"))
-            
-            # Gleiche Quelle + Seite nur 1× berücksichtigen
             if src_id in seen_sources:
                 continue
 
             doc_text = doc.page_content.strip()
-            if total_chars + len(doc_text) <= 4000:
+            if total_chars + len(doc_text) <= 4000:  # Promptgröße beschränkt für das LLM
                 context += doc_text + "\n"
                 total_chars += len(doc_text)
                 included_docs.append(doc)
@@ -111,8 +137,7 @@ def ask(frage: FrageInput):
             else:
                 break
 
-
-                    # 🔍 Debug: Kontextausgabe vor API-Aufruf
+        # Debug-Ausgabe (optional, zur Protokollierung der verwendeten Dokumente)
         print("📦 Kontextlänge:", len(context))
         print("📄 Übergebene Dokumente:")
         for d in included_docs:
@@ -122,11 +147,11 @@ def ask(frage: FrageInput):
             )
             print("   Auszug:", d.page_content[:120].replace('\n', ' '), "\n")
 
-
         if not included_docs:
             return {"antwort": "Dazu liegt mir keine verlässliche Information vor.", "quellen": []}
 
-        #Prompt
+        # Systemprompt steuert das Antwortverhalten des LLM: 
+        # Wissenschaftlich, sachlich, nur belegbare Zahlen/Begriffe ausgeben, Antworten strukturiert präsentieren.
         messages = [
             {
                 "role": "system",
@@ -137,10 +162,6 @@ def ask(frage: FrageInput):
                     "Wenn im Kontext ein nummerierter Abschnitt wie '17. Spielapparatesteuer' genannt wird, beziehe dich explizit darauf."
                     "Gehe bei Gebühren und Steuerbeträgen äußerst sorgfältig vor. Verlasse dich nur auf explizit genannte Werte in der Satzung. Werte wie 84 €, 132 € oder 700 € dürfen nur verwendet werden, wenn diese exakt so im Text stehen."
                     "Formatiere deine Antwort, wenn möglich, tabellarisch oder in nummerierten Punkten. Beispiel: 1. Betrag: …, 2. Gültigkeit: …, 3. Quelle: …"
-
-
-
-
                 )
             },
             {
@@ -149,9 +170,10 @@ def ask(frage: FrageInput):
             }
         ]
 
-        
-
-        #Anfrage an Groq API
+        # Anfrage an das LLM über die Groq-API. Modellparameter sind so gewählt, dass die Antwort deterministisch, konsistent und nachvollziehbar bleibt:
+        # - max_tokens = 1024 (Länge der Antwort begrenzt)
+        # - temperature = 0.0 (keine zufälligen Antworten, maximale Wiederholbarkeit)
+        # - top_p = 0.9 (gewisse sprachliche Varianz ohne Kontrollverlust)
         response = requests.post(
             MODEL_CONFIG["api_url"],
             headers={
@@ -169,6 +191,7 @@ def ask(frage: FrageInput):
         )
 
         if response.status_code != 200:
+            # Fehlerausgabe und Rückgabe aller verwendeten Quellen.
             return {
                 "antwort": f"Fehler bei Anfrage: {response.status_code} - {response.text}",
                 "quellen": [f"{doc.metadata.get('source', 'unbekannt')} (Seite {doc.metadata.get('page_number', '-')})"
@@ -178,7 +201,7 @@ def ask(frage: FrageInput):
         result = response.json()
         answer = result.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
 
-        #Quellenformatierung
+        # Quellenangabe: Nachvollziehbarkeit und wissenschaftliche Sorgfalt.
         quellen = []
         for doc in included_docs:
             seite = doc.metadata.get("page_number", "-")
@@ -195,4 +218,5 @@ def ask(frage: FrageInput):
         }
 
     except Exception as e:
+        # Fehlerhandling gibt neben der Fehlermeldung immer auch das Traceback zur transparenten Diagnose zurück.
         return JSONResponse(status_code=500, content={"error": str(e), "traceback": traceback.format_exc()})
