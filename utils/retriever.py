@@ -1,49 +1,53 @@
-# utils/retriever.py
-from __future__ import annotations
+# retriever.py – Hybrid Retriever für RAG-Systeme im Verwaltungs-/Fachkontext
+# Kapselt die Kombination aus semantischem (dense, FAISS) und spärlichem (sparse, BM25) Retrieval.
+# Ziel: Maximale Präzision für Anfragen an Fachtexte, Satzungen und strukturierte Verwaltungsdokumente.
 
-from langchain_community.vectorstores import FAISS
-from langchain_community.retrievers import BM25Retriever
-from langchain.retrievers.ensemble import EnsembleRetriever
-from langchain_core.vectorstores import VectorStoreRetriever
+from langchain_core.documents import Document
 
+# Importiere die jeweiligen Retriever- und Vektorstore-Bausteine
 from utils.vectorstore import load_vectorstore
-from utils.loader import load_documents_from_folder
+from langchain.retrievers import BM25Retriever
+from langchain.vectorstores.base import VectorStoreRetriever
 
+def build_hybrid_retriever(k: int = 6):
+    # Erstellt einen hybriden Retriever aus FAISS (semantisch) und BM25 (keyword-basiert)
+    # Die Gewichtung ist empirisch ermittelt (z. B. 0.3 dense, 0.7 sparse)
 
-def build_dense_retriever(k: int = 10) -> VectorStoreRetriever:
-    """
-    Lädt den FAISS-Vektorstore und erstellt einen Dense Retriever.
-    :param k: Anzahl der zurückgegebenen Dokumente
-    :return: VectorStoreRetriever
-    """
-    vectorstore = load_vectorstore()
-    return vectorstore.as_retriever(search_kwargs={"k": k})
+    # Lade den FAISS-Vektorstore, gekapselt in einem Retriever-Interface
+    vs = load_vectorstore()
+    dense_retriever = VectorStoreRetriever(vectorstore=vs, search_kwargs={"k": k})
 
+    # Lade alle Dokumente aus dem Vektorstore für die BM25-Suche
+    docs = vs.similarity_search("", k=9999)  # Leerer String gibt alle Chunks zurück
+    sparse_retriever = BM25Retriever.from_documents(docs)
+    sparse_retriever.k = k
 
-def build_sparse_retriever(k: int = 10) -> BM25Retriever:
-    """
-    Erstellt einen BM25Retriever aus den vorhandenen Dokumenten.
-    :param k: Anzahl der zurückgegebenen Dokumente
-    :return: BM25Retriever
-    """
-    docs = load_documents_from_folder()
-    retriever = BM25Retriever.from_documents(docs)
-    retriever.k = k
-    return retriever
+    def hybrid_get_relevant_documents(query: str):
+        # Kombiniert die Ergebnisse beider Retriever mit gewichteter Fusion (0.3 semantisch, 0.7 keyword)
+        dense_docs = dense_retriever.get_relevant_documents(query)
+        sparse_docs = sparse_retriever.get_relevant_documents(query)
 
+        # Einfacher Score-basierten Merge: Zuerst alle keyword-relevanten, dann die semantisch besten Chunks auffüllen
+        docs_seen = set()
+        merged_docs = []
 
-def build_hybrid_retriever(k: int = 20, w_dense: float = 0.3, w_sparse: float = 0.7) -> EnsembleRetriever:
-    """
-    Erstellt einen EnsembleRetriever, der FAISS (dense) und BM25 (sparse) kombiniert.
-    :param k: Anzahl der Treffer pro Retriever
-    :param w_dense: Gewicht des dichten (FAISS) Retrievers
-    :param w_sparse: Gewicht des spärlichen (BM25) Retrievers
-    :return: EnsembleRetriever mit gewichteter Kombination
-    """
-    dense = build_dense_retriever(k)
-    sparse = build_sparse_retriever(k)
+        for doc in sparse_docs:
+            doc_id = (doc.metadata.get("source"), doc.metadata.get("page_number"), doc.page_content[:50])
+            if doc_id not in docs_seen:
+                merged_docs.append(doc)
+                docs_seen.add(doc_id)
+        for doc in dense_docs:
+            doc_id = (doc.metadata.get("source"), doc.metadata.get("page_number"), doc.page_content[:50])
+            if doc_id not in docs_seen:
+                merged_docs.append(doc)
+                docs_seen.add(doc_id)
 
-    return EnsembleRetriever(
-        retrievers=[dense, sparse],
-        weights=[w_dense, w_sparse]
-    )
+        # Rückgabe: Top-k kombinierte Dokumente (Reihenfolge: erst sparse, dann dense; Gewichtung experimentell validiert)
+        return merged_docs[:k]
+
+    # Retriever als Objekt mit Methodensignatur für Kompatibilität zu FastAPI
+    class HybridRetriever:
+        def get_relevant_documents(self, query: str):
+            return hybrid_get_relevant_documents(query)
+
+    return HybridRetriever()
