@@ -1,34 +1,103 @@
+<!--
+index.html – Minimales, aber funktionales Frontend für KI-RAG-Prototyp
+Dieses Interface ermöglicht es Anwender:innen, bequem Fragen an das Backend zu stellen und Antworten samt Quellen einzusehen.
+Der Fokus liegt auf Zugänglichkeit, Einfachheit und Transparenz.
+-->
+
 <!DOCTYPE html>
 <html lang="de">
 <head>
-  <meta charset="UTF-8">
-  <title>Eppstein KI-Assistent</title>
-  <style>
-    body { font-family: sans-serif; padding: 2rem; background: #f4f4f4; }
-    h1 { color: #005a9c; }
-    textarea { width: 100%; height: 80px; }
-    button { padding: 0.5rem 1rem; margin-top: 1rem; }
-    pre { background: #fff; padding: 1rem; white-space: pre-wrap; border: 1px solid #ccc; }
-  </style>
+    <meta charset="UTF-8">
+    <title>KI Dokumenten-RAG Prototyp</title>
+    <!-- 
+        Einfache, responsive Gestaltung durch CSS – 
+        Ziel: auch für Nutzer:innen ohne technische Vorkenntnisse nutzbar
+    -->
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 0; background: #f8f8f8; }
+        .container { max-width: 600px; margin: 40px auto; background: #fff; padding: 2em; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+        h1 { font-size: 1.6em; color: #202063; }
+        textarea { width: 100%; min-height: 70px; margin-bottom: 1em; }
+        button { background: #202063; color: #fff; border: none; padding: 0.7em 1.5em; border-radius: 4px; cursor: pointer; }
+        button:disabled { background: #bbb; }
+        .antwort { background: #f3f6fa; padding: 1em; border-radius: 6px; margin-top: 1.5em; }
+        .quellen { font-size: 0.95em; color: #333; margin-top: 1em; }
+    </style>
 </head>
 <body>
-  <h1>Frage den KI-Verwaltungsassistenten</h1>
-  <textarea id="frage" placeholder="Stelle hier deine Frage..."></textarea><br>
-  <button onclick="frageSenden()">Frage senden</button>
-  <h2>Antwort:</h2>
-  <pre id="antwort">Noch keine Antwort.</pre>
+    <div class="container">
+        <!-- Titel und kurze Einleitung für den Prototypen -->
+        <h1>Dokumentenbasierter KI-Assistent</h1>
+        <p>
+            Stellen Sie eine fachliche Frage zu Satzungen, Gebühren oder kommunalen Dokumenten. Die KI liefert Ihnen eine Antwort 
+            mit Verweis auf die zugrunde liegenden Quellen.
+        </p>
 
-  <script>
-    async function frageSenden() {
-      const frage = document.getElementById("frage").value;
-      const response = await fetch("/ask", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: frage })
-      });
-      const data = await response.json();
-      document.getElementById("antwort").textContent = data.antwort || "Fehler bei der Antwort.";
-    }
-  </script>
+        <!--
+            Texteingabe-Feld für die Nutzerfrage.
+            Das oninput-Attribut deaktiviert/aktiviert den Button dynamisch.
+        -->
+        <textarea id="frage" placeholder="Ihre Frage..."></textarea>
+        <button id="senden" onclick="frageAbsenden()" disabled>Frage absenden</button>
+
+        <!-- Bereich zur Anzeige der Antwort und Quellen -->
+        <div id="antwort" class="antwort" style="display:none;"></div>
+        <div id="quellen" class="quellen" style="display:none;"></div>
+    </div>
+
+    <script>
+        // Button nur aktivieren, wenn das Textfeld nicht leer ist (Bedienbarkeit)
+        document.getElementById("frage").oninput = function() {
+            document.getElementById("senden").disabled = this.value.trim() === "";
+        };
+
+        // Hauptfunktion: Senden der Frage an das FastAPI-Backend (POST /ask)
+        function frageAbsenden() {
+            var frage = document.getElementById("frage").value.trim();
+            var antwortDiv = document.getElementById("antwort");
+            var quellenDiv = document.getElementById("quellen");
+            antwortDiv.style.display = "none";
+            quellenDiv.style.display = "none";
+            antwortDiv.innerHTML = "";
+            quellenDiv.innerHTML = "";
+
+            // Sicherheitsabfrage (Frontendschutz)
+            if (!frage) {
+                alert("Bitte geben Sie eine Frage ein.");
+                return;
+            }
+
+            // Button während der Anfrage deaktivieren (Verhindert Doppeleingaben)
+            document.getElementById("senden").disabled = true;
+
+            // Fetch-POST an FastAPI-Endpoint "/ask", erwartet JSON mit {"question": ...}
+            fetch("/ask", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ question: frage })
+            })
+            .then(response => response.json())
+            .then(data => {
+                // Antwort anzeigen
+                if (data.antwort) {
+                    antwortDiv.innerHTML = "<b>Antwort:</b><br>" + data.antwort.replace(/\n/g, "<br>");
+                    antwortDiv.style.display = "block";
+                }
+                // Quellen anzeigen
+                if (data.quellen && data.quellen.length > 0) {
+                    quellenDiv.innerHTML = "<b>Quellen:</b><ul>" + data.quellen.map(q => "<li>" + q + "</li>").join("") + "</ul>";
+                    quellenDiv.style.display = "block";
+                }
+            })
+            .catch(error => {
+                antwortDiv.innerHTML = "Fehler bei der Anfrage.<br>" + error;
+                antwortDiv.style.display = "block";
+            })
+            .finally(() => {
+                // Button wieder aktivieren
+                document.getElementById("senden").disabled = false;
+            });
+        }
+    </script>
 </body>
 </html>
