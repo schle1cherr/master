@@ -11,7 +11,7 @@ main.py bildet den Einstiegspunkt und enthält die FastAPI-Logik zur Bereitstell
 
 Im Ordner utils/ befinden sich sämtliche Hilfsmodule für die Dokumentenextraktion (extractors.py), das Laden verschiedener Dateiformate (loader.py), die semantische Suche (retriever.py) und die Verwaltung der Vektordatenbank (vectorstore.py).
 
-Der Ordner data/ enthält exemplarische Testdokumente (PDF, DOCX, XLSX), mit denen das System überprüft werden kann.
+Der Ordner data/ enthält exemplarische Testdokumente (PDF), mit denen das System überprüft werden kann.
 
 Im Verzeichnis vectorstore/ werden die persistenten Vektorindizes abgelegt, die von FAISS erzeugt werden.
 
