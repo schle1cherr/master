@@ -53,6 +53,8 @@ Wissenschaftlicher Kontext und Nachvollziehbarkeit:
 Dieses Repository dient als technische Grundlage zur wissenschaftlichen Evaluation von KI-basierten RAG-Systemen in der kommunalen Verwaltung. 
 Die klare Trennung von Code, Daten und Dokumentation, sowie die konsequente Kommentierung der Module ermöglichen eine vollständige Nachvollziehbarkeit und eine einfache Erweiterung des Systems im Rahmen weiterführender Forschungs- oder Praxisprojekte.
 
+Zusätzlich kann sich über die Datei Prototyp-Interface.png ein Bild vom Prototypen gemacht werden.
+
 Literaturhinweis & Anfertigungshinweis:
 Die grundlegende technische Orientierung erfolgte gemäß:
 Anand, S. (2023). AI-Powered Q&A Chatbot with LangChain & FastAPI. Medium. https://medium.com/@shivanshuk33/ai-powered-q-a-chatbot-with-langchain-fastapi-c07e1796efad
